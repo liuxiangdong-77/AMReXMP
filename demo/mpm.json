@@ -1,0 +1,134 @@
+{
+    "title": "3D_Underground_Explosion",
+            
+    "mesh":{
+        "mesh": "mesh-3d.txt",
+        "entity_sets": "entity_sets.json",
+        "io_type": "Ascii3D",
+        "check_duplicates": false,
+        "isoparametric": false,
+        "node_type": "N3D",
+        "cell_type": "ED3H8",
+        "particle_cells": "particles-cells.txt",
+        "particles_volumes": "particles-volumes.txt",
+        "particles_stresses": {
+          "type": "isotropic",
+          "values": [
+            0.000000,
+            0.000000,
+            0.000000,
+            0.000000,
+            0.000000,
+            0.000000
+          ]
+        },
+        "boundary_conditions":{
+            
+        }
+    },
+    "particles": [
+        {
+            "generator": {
+                "type": "file",
+                "material_id": 0,
+                "pset_id": 0,
+                "io_type": "Ascii3D",
+                "particle_type": "P3D",
+                "check_duplicates": false,
+                "location": "particles-3d.txt"
+            }
+        }
+    ],
+
+    "materials": [
+        {
+            "id": 0,
+            "type": "LinearElastic3D",
+            "density": 2.65e-3,
+            "youngs_modulus": 61.5e3,
+            "poisson_ratio": 0.25
+        }
+    ],
+
+    "material_sets": [
+        {
+            "material_id": 0,
+            "pset_id": 1
+        }
+    ],
+
+    "external_loading_conditions": {
+        "gravity": [0.0, 0.0, 0.0],
+        "particle_surface_traction": [
+        {
+          "pset_id": 1,
+          "math_function_id": 0,
+          "dir": 0,
+          "traction": 1
+        },
+        {
+          "pset_id": 1,
+          "math_function_id": 0,
+          "dir": 1,
+          "traction": 1
+        },
+        {
+          "pset_id": 1,
+          "math_function_id": 0,
+          "dir": 2,
+          "traction": 1
+        }
+      ]
+    },
+
+    "math_functions": [
+        {
+            "id": 10,
+            "type": "Linear",
+            "file": "math_function_input.csv"
+        },
+        {
+            "id": 0,
+            "type": "Linear",
+            "xvalues": [0.0, 10.0, 100.0],
+            "fxvalues": [0.0, 0.0001, 0.001]
+        }
+    ],
+
+    "analysis": {
+        "type": "MPMExplicit3D",
+        "mpm_scheme": "usf",
+        "velocity_update": "flip",
+        "velocity_update_settings": {
+	        "blending_ratio": 0.95
+        },
+        "dt": 10,
+        "nsteps": 100,
+        "locate_particles": true,
+        "nload_balance_steps": 1000,
+        "uuid": "output-name-000",
+        "resume": {
+            "resume": false,
+            "uuid": "output-name-000",
+            "step": 1000
+        },
+        "damping": {
+            "type": "Cundall",
+            "damping_factor": 0.0
+        },
+        "rayleigh_alpha": 0.0
+    },
+
+    "post_processing":{
+        "output_steps": 1,
+        "path": "results/",
+        "vtk": [
+            "velocities",
+            "displacements",
+            "stresses",
+            "radius_factor",
+            "particle_spacing",
+            "particle_data"
+        ]
+    }
+}

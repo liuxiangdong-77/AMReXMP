@@ -1,0 +1,112 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "full-release-build",
+            "type": "shell",
+            "command": "rm -rf build_release && mkdir -p build_release && cd build_release && cmake -DCMAKE_CXX_COMPILER=g++ -DNO_KAHIP=True .. && make clean && make -j16",
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Release构建"
+        },
+        {
+            "label": "Generate graded Hex8 mesh",
+            "type": "shell",
+            "command": "python3",
+            "args": [
+                "${workspaceFolder}/tools/graded_hex_mesh/generate_graded_hex_mesh.py",
+                "${workspaceFolder}/tools/graded_hex_mesh/graded_hex.example.json"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/tools/graded_hex_mesh"
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": [],
+            "detail": "Generate graded orthorhombic Hex8 MPM inputs"
+        },
+        {
+            "label": "full-debug-build",
+            "type": "shell",
+            "command": "rm -rf build_debug && mkdir -p build_debug && cd build_debug && cmake -DCMAKE_BUILD_TYPE=Debug -DMPM_BUILD_TESTING=OFF -DCMAKE_CXX_COMPILER=g++ -DNO_KAHIP=True .. && make clean && make -j16",
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Debug构建"
+        },
+        {
+            "label": "run-mpm-demo-release",
+            "type": "shell",
+            "command": "~/mpm/build_release/mpm -f ~/mpm/demo/ -p 24 -i mpm.json",
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/build_release"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "run-mpm-demo-debug",
+            "type": "shell",
+            "command": "~/mpm/build_debug/mpm -f ~/mpm/demo/ -p 16 -i mpm.json",
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/build_debug"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "mpm-amrex-configure",
+            "type": "shell",
+            "command": "cmake -S ${env:HOME}/mpm -B ${env:HOME}/mpm/build_amrex -DCMAKE_CXX_COMPILER=g++-13 -DCMAKE_PREFIX_PATH=${env:HOME}/opt/amrex-26.11 -DMPM_WITH_AMREX=ON -DNO_KAHIP=True",
+            "group": "build",
+            "problemMatcher": "$gcc",
+            "detail": "CMake configure for MPM + AMReX"
+        },
+        {
+            "label": "mpm-amrex-build",
+            "type": "shell",
+            "command": "cmake --build ${env:HOME}/mpm/build_amrex --parallel 8",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": "mpm-amrex-configure",
+            "problemMatcher": "$gcc",
+            "detail": "Build MPM AMReX target"
+        },
+        {
+            "label": "mpm-amrex-run-test",
+            "type": "shell",
+            "command": "${env:HOME}/mpm/build_amrex/amrex_smoke_test",
+            "dependsOn": "mpm-amrex-build",
+            "problemMatcher": [],
+            "detail": "Run amrex_smoke_test"
+        }
+    ]
+}

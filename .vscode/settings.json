@@ -1,0 +1,11 @@
+{
+  "cmake.configureArgs": [
+    "-DNO_KAHIP=True"
+  ],
+  "files.associations": {
+    "*.tcc": "cpp",
+    "*.h": "cpp",
+    "**/include/c++/**": "cpp"
+  },
+  "C_Cpp.errorSquiggles": "disabled"
+}

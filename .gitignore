@@ -1,0 +1,39 @@
+# CMake / build
+build/
+build_*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.o
+*.a
+*.so
+*.so.*
+
+# Generated source
+include/git.cc
+
+# Large demo data
+demo/mesh-3d.txt
+demo/particles-3d.txt
+demo/particles-cells.txt
+demo/particles-volumes.txt
+
+# Simulation output
+results/
+results-*/
+output/
+*.vtk
+*.vtp
+*.pvtp
+*.pvtu
+*.h5
+*.hdf5
+*.partio
+*.log
+
+# Editor / OS
+.DS_Store
+*.swp
+*~

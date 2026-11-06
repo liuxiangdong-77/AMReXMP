@@ -1,0 +1,19 @@
+{
+  "label": "Generate graded Hex8 mesh",
+  "type": "shell",
+  "command": "python3",
+  "args": [
+    "${workspaceFolder}/tools/graded_hex_mesh/generate_graded_hex_mesh.py",
+    "${workspaceFolder}/tools/graded_hex_mesh/graded_hex.example.json"
+  ],
+  "options": {
+    "cwd": "${workspaceFolder}/tools/graded_hex_mesh"
+  },
+  "group": "build",
+  "presentation": {
+    "reveal": "always",
+    "panel": "shared"
+  },
+  "problemMatcher": [],
+  "detail": "Generate graded orthorhombic Hex8 MPM inputs"
+}

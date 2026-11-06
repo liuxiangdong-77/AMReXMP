@@ -1,0 +1,212 @@
+#ifndef MPM_MATERIAL_MATERIAL_H_
+#define MPM_MATERIAL_MATERIAL_H_
+
+#include <limits>
+
+#include "Eigen/Dense"
+#include "json.hpp"
+
+#include "factory.h"
+#include "logger.h"
+#include "map.h"
+#include "material_utility.h"
+#include "math_utility.h"
+#include "particle.h"
+#include "particle_base.h"
+
+// JSON
+using Json = nlohmann::json;
+
+namespace mpm {
+
+// Forward declaration of ParticleBase
+template <unsigned Tdim>
+class ParticleBase;
+
+//! Objective stress rate type
+//! None: No objective stress rate
+//! Jaumann: Objective stress rate considering Jaumann rate
+//! GreenNaghdi: Objective stress rate considering Green-Naghdi rate
+enum class StressRate { None, Jaumann, GreenNaghdi };
+
+//! Material base class
+//! \brief Base class that stores the information about materials
+//! \details Material class stresses and strains
+//! \tparam Tdim Dimension
+template <unsigned Tdim>
+class Material {
+ public:
+  //! Define a vector of 6 dof
+  using Vector6d = Eigen::Matrix<double, 6, 1>;
+  //! Define a Matrix of 6 x 6
+  using Matrix6x6 = Eigen::Matrix<double, 6, 6>;
+
+  // Constructor with id
+  //! \param[in] id Material id
+  Material(unsigned id, const Json& material_properties) : id_{id} {
+    //! Logger
+    std::string logger = "material::" + std::to_string(id);
+    console_ = std::make_unique<spdlog::logger>(logger, mpm::stdout_sink);
+  }
+
+  //! Destructor
+  virtual ~Material(){};//类要被继承，虚析构函数
+
+  //! Delete copy constructor
+  Material(const Material&) = delete;
+
+  //! Delete assignement operator
+  Material& operator=(const Material&) = delete;
+
+  //! Return id of the material
+  unsigned id() const { return id_; }
+
+  //! Get material property
+  //! \tparam Ttype Return type for proerpty
+  //! \param[in] key Material property key
+  //! \retval result Value of material property
+  template <typename Ttype>
+  Ttype property(const std::string& key);
+
+  //! Initialise history variables
+  virtual mpm::dense_map initialise_state_variables() = 0;
+
+  //! State variables
+  virtual std::vector<std::string> state_variables() const = 0;
+
+  //! Initialise material
+  //! \brief Function that initialise material to be called at the beginning of
+  //! time step
+  //! \param[in] state_vars History-dependent state variables
+  virtual void initialise(mpm::dense_map* state_vars){};
+
+  /**
+   * \defgroup InfinitesimalStrain Functions for infinitesimal strain
+   * formulation
+   */
+  /**@{*/
+
+  //! Compute stress
+  //! \ingroup InfinitesimalStrain
+  //! \param[in] stress Stress
+  //! \param[in] dstrain Strain
+  //! \param[in] particle Constant point to particle base
+  //! \param[in] state_vars History-dependent state variables
+  //! \param[in] dt Time step increment
+  //! \retval updated_stress Updated value of stress
+  virtual Vector6d compute_stress(const Vector6d& stress,
+                                  const Vector6d& dstrain,
+                                  const ParticleBase<Tdim>* ptr,
+                                  mpm::dense_map* state_vars, double dt) {
+    auto error = Vector6d::Zero();
+    throw std::runtime_error(
+        "Calling the base class function (compute_stress) "
+        "in Material:: illegal operation!");
+    return error;
+  };//虚函数调用，允许子类重新定义父类成员函数（多态）
+
+  //! Compute consistent tangent matrix
+  //! \ingroup InfinitesimalStrain
+  //! \param[in] stress Updated stress
+  //! \param[in] prev_stress Stress at the current step
+  //! \param[in] dstrain Strain
+  //! \param[in] particle Constant point to particle base
+  //! \param[in] state_vars History-dependent state variables
+  //! \param[in] dt Time step increment
+  //! \retval dmatrix Constitutive relations mattrix
+  virtual Matrix6x6 compute_consistent_tangent_matrix(
+      const Vector6d& stress, const Vector6d& prev_stress,
+      const Vector6d& dstrain, const ParticleBase<Tdim>* ptr,
+      mpm::dense_map* state_vars, double dt) {
+    auto error = Matrix6x6::Zero();
+    throw std::runtime_error(
+        "Calling the base class function (compute_consistent_tangent_matrix) "
+        "in Material:: illegal operation!");
+    return error;
+  };
+  /**@}*/
+
+  /**
+   * \defgroup FiniteStrain Functions for finite strain formulation
+   */
+  /**@{*/
+  //! Compute stress
+  //! \ingroup FiniteStrain
+  //! \param[in] stress Stress
+  //! \param[in] deformation_gradient Deformation gradient at the current step
+  //! \param[in] deformation_gradient_increment Deformation gradient increment
+  //! \param[in] particle Constant point to particle base
+  //! \param[in] state_vars History-dependent state variables
+  //! \param[in] dt Time step increment
+  //! \retval updated_stress Updated value of stress
+  virtual Vector6d compute_stress(
+      const Vector6d& stress,
+      const Eigen::Matrix<double, 3, 3>& deformation_gradient,
+      const Eigen::Matrix<double, 3, 3>& deformation_gradient_increment,
+      const ParticleBase<Tdim>* ptr, mpm::dense_map* state_vars, double dt) {
+    auto error = Vector6d::Zero();
+    throw std::runtime_error(
+        "Calling the base class function (compute_stress) "
+        "in Material:: illegal operation!");
+    return error;
+  };
+
+  //! Compute consistent tangent matrix
+  //! \ingroup FiniteStrain
+  //! \param[in] stress Updated stress
+  //! \param[in] prev_stress Stress at the current step
+  //! \param[in] deformation_gradient Deformation gradient at the current step
+  //! \param[in] deformation_gradient_increment Deformation gradient increment
+  //! \param[in] particle Constant point to particle base
+  //! \param[in] state_vars History-dependent state variables
+  //! \param[in] dt Time step increment
+  //! \retval dmatrix Constitutive relations mattrix
+  virtual Matrix6x6 compute_consistent_tangent_matrix(
+      const Vector6d& stress, const Vector6d& prev_stress,
+      const Eigen::Matrix<double, 3, 3>& deformation_gradient,
+      const Eigen::Matrix<double, 3, 3>& deformation_gradient_increment,
+      const ParticleBase<Tdim>* ptr, mpm::dense_map* state_vars, double dt) {
+    auto error = Matrix6x6::Zero();
+    throw std::runtime_error(
+        "Calling the base class function "
+        "(compute_consistent_tangent_matrix) "
+        "in Material:: illegal operation!");
+    return error;
+  };
+  /**@}*/
+
+/*=====================================MTF========================================*/
+
+  //! Check if material supports MTF history lxd
+  virtual bool supports_mtf_history() const { return false; }
+
+  //! Number of stored MTF history steps (default: current only)
+  virtual unsigned history_size() const { return 1; }
+  
+  //! Get history variable (for MTF)
+  virtual double get_history_variable(const mpm::dense_map* state_vars,
+                                      const std::string& var_name,
+                                      unsigned time_step) const {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  
+  //! Advance history variables (for MTF)
+  virtual void advance_history_variables(mpm::dense_map* state_vars,
+                                        const ParticleBase<Tdim>* particle,
+                                        unsigned long long time_step) {
+    // Base class does nothing
+  }
+
+ protected:
+  //! material id
+  unsigned id_{std::numeric_limits<unsigned>::max()};
+  //! Material properties
+  Json properties_;
+  //! Logger
+  std::unique_ptr<spdlog::logger> console_;
+};  // Material class
+}  // namespace mpm
+
+#include "material.tcc"
+
+#endif  // MPM_MATERIAL_MATERIAL_H_
