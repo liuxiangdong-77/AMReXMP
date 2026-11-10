@@ -196,6 +196,11 @@ class Node : public NodeBase<Tdim> {
   void update_acceleration(bool update, unsigned phase,
                            const VectorDim& acceleration) noexcept override;
 
+  //! Assign nodal velocity and acceleration together
+  void assign_velocity_acceleration(
+      unsigned phase, const VectorDim& velocity,
+      const VectorDim& acceleration) noexcept override;
+
   //! Return acceleration at a given node for a given phase
   //! \param[in] phase Index corresponding to the phase
   VectorDim acceleration(unsigned phase) const override {

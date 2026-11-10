@@ -9,20 +9,13 @@
 namespace mpm {
 namespace amr {
 
-class AmrexRuntime::Impl {
- public:
-#ifdef MPM_WITH_AMREX
-  amrex::AMReX* instance{nullptr};
-#endif
-};
-
 AmrexRuntime::AmrexRuntime(int& argc, char**& argv)
-    : impl_(std::make_unique<Impl>()) {
+    : instance_(nullptr) {
 #ifdef MPM_WITH_AMREX
 #ifdef AMREX_USE_MPI
-  impl_->instance = amrex::Initialize(argc, argv, false, MPI_COMM_WORLD);
+  instance_ = amrex::Initialize(argc, argv, false, MPI_COMM_WORLD);
 #else
-  impl_->instance = amrex::Initialize(argc, argv, false);
+  instance_ = amrex::Initialize(argc, argv, false);
 #endif
   amrex::SetVerbose(0);
 #else
@@ -35,14 +28,13 @@ AmrexRuntime::AmrexRuntime(int& argc, char**& argv)
 
 AmrexRuntime::~AmrexRuntime() {
 #ifdef MPM_WITH_AMREX
-  if (impl_ != nullptr && impl_->instance != nullptr)
-    amrex::Finalize(impl_->instance);
+  if (instance_ != nullptr) amrex::Finalize(instance_);
 #endif
 }
 
 bool AmrexRuntime::active() const noexcept {
 #ifdef MPM_WITH_AMREX
-  return impl_ != nullptr && impl_->instance != nullptr;
+  return instance_ != nullptr;
 #else
   return false;
 #endif

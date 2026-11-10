@@ -304,6 +304,121 @@ void mpm::Mesh<Tdim>::find_cell_neighbours() {
   }
 }
 
+#ifdef MPM_WITH_AMREX
+//! Assign the AMR hierarchy used for finest-cell lookup
+template <unsigned Tdim>
+void mpm::Mesh<Tdim>::assign_amr_backend(
+    const std::shared_ptr<mpm::amr::AmrexAmrBackend>& backend) {
+  amr_backend_ = backend;
+}
+
+//! Map an MPM cell id to its AMR level and index
+template <unsigned Tdim>
+void mpm::Mesh<Tdim>::assign_amr_cell_key(
+    mpm::Index cell_id, const mpm::amr::AmrCellKey& key) {
+  amr_cell_ids_[{key.level, key.index[0], key.index[1], key.index[2]}] =
+      cell_id;
+  if (amr_cell_levels_.size() <= cell_id)
+    amr_cell_levels_.resize(cell_id + 1, 0);
+  amr_cell_levels_[cell_id] = key.level;
+}
+
+//! Return the MPM cell id for an AMR level/index pair
+template <unsigned Tdim>
+std::optional<mpm::Index> mpm::Mesh<Tdim>::amr_cell_id(
+    int level, const std::array<int, 3>& index) const {
+  const auto found =
+      amr_cell_ids_.find({level, index[0], index[1], index[2]});
+  if (found == amr_cell_ids_.end()) return std::nullopt;
+  return found->second;
+}
+
+//! Return the AMR level of an MPM cell
+template <unsigned Tdim>
+int mpm::Mesh<Tdim>::amr_cell_level(mpm::Index cell_id) const {
+  if (cell_id >= amr_cell_levels_.size()) return 0;
+  return amr_cell_levels_[cell_id];
+}
+
+//! Assign direct hanging-node constraints
+template <unsigned Tdim>
+void mpm::Mesh<Tdim>::assign_hanging_node_constraints(
+    const std::vector<mpm::amr::HangingNodeConstraint>& constraints) {
+  hanging_node_constraints_ = constraints;
+}
+
+//! Return direct hanging-node constraints
+template <unsigned Tdim>
+const std::vector<mpm::amr::HangingNodeConstraint>&
+mpm::Mesh<Tdim>::hanging_node_constraints() const {
+  return hanging_node_constraints_;
+}
+
+//! Move hanging-node mass and momentum to coarse support nodes
+template <unsigned Tdim>
+void mpm::Mesh<Tdim>::condense_hanging_node_mass_momentum(unsigned phase) {
+  constexpr double tolerance = 1.0e-15;
+  for (const auto& constraint : hanging_node_constraints_) {
+    const auto& hanging = map_nodes_[constraint.hanging_node];
+    const double hanging_mass = hanging->mass(phase);
+    const VectorDim hanging_momentum = hanging->momentum(phase);
+
+    hanging->update_mass(false, phase, 0.0);
+    hanging->update_momentum(false, phase, VectorDim::Zero());
+    for (unsigned i = 0; i < constraint.support_nodes.size(); ++i) {
+      if (std::abs(constraint.weights[i]) <= tolerance) continue;
+      const auto& support = map_nodes_[constraint.support_nodes[i]];
+      support->update_mass(true, phase,
+                           constraint.weights[i] * hanging_mass);
+      support->update_momentum(
+          true, phase, constraint.weights[i] * hanging_momentum);
+    }
+  }
+}
+
+//! Project hanging-node forces to coarse support nodes
+template <unsigned Tdim>
+void mpm::Mesh<Tdim>::project_hanging_node_forces(unsigned phase) {
+  constexpr double tolerance = 1.0e-15;
+  for (const auto& constraint : hanging_node_constraints_) {
+    const auto& hanging = map_nodes_[constraint.hanging_node];
+    const VectorDim external_force = hanging->external_force(phase);
+    const VectorDim internal_force = hanging->internal_force(phase);
+
+    hanging->update_external_force(false, phase, VectorDim::Zero());
+    hanging->update_internal_force(false, phase, VectorDim::Zero());
+    for (unsigned i = 0; i < constraint.support_nodes.size(); ++i) {
+      if (std::abs(constraint.weights[i]) <= tolerance) continue;
+      const auto& support = map_nodes_[constraint.support_nodes[i]];
+      support->update_external_force(
+          true, phase, constraint.weights[i] * external_force);
+      support->update_internal_force(
+          true, phase, constraint.weights[i] * internal_force);
+    }
+  }
+}
+
+//! Rebuild hanging-node velocity and acceleration from support nodes
+template <unsigned Tdim>
+void mpm::Mesh<Tdim>::reconstruct_hanging_node_kinematics(unsigned phase) {
+  constexpr double tolerance = 1.0e-15;
+  for (const auto& constraint : hanging_node_constraints_) {
+    VectorDim velocity = VectorDim::Zero();
+    VectorDim acceleration = VectorDim::Zero();
+    for (unsigned i = 0; i < constraint.support_nodes.size(); ++i) {
+      if (std::abs(constraint.weights[i]) <= tolerance) continue;
+      const auto& support = map_nodes_[constraint.support_nodes[i]];
+      velocity.noalias() +=
+          constraint.weights[i] * support->velocity(phase);
+      acceleration.noalias() +=
+          constraint.weights[i] * support->acceleration(phase);
+    }
+    map_nodes_[constraint.hanging_node]->assign_velocity_acceleration(
+        phase, velocity, acceleration);
+  }
+}
+#endif
+
 //! Compute average cell size
 template <unsigned Tdim>
 double mpm::Mesh<Tdim>::compute_average_cell_size() const {
@@ -1100,7 +1215,7 @@ std::vector<std::shared_ptr<mpm::ParticleBase<Tdim>>>
   std::vector<std::shared_ptr<mpm::ParticleBase<Tdim>>> particles;
 
   std::for_each(particles_.cbegin(), particles_.cend(),
-                [=, &particles](
+                [this, &particles](
                     const std::shared_ptr<mpm::ParticleBase<Tdim>>& particle) {
                   // If particle is not found in mesh add to a list of particles
                   if (!this->locate_particle_cells(particle))
@@ -1114,6 +1229,27 @@ std::vector<std::shared_ptr<mpm::ParticleBase<Tdim>>>
 template <unsigned Tdim>
 bool mpm::Mesh<Tdim>::locate_particle_cells(
     const std::shared_ptr<mpm::ParticleBase<Tdim>>& particle) {
+#ifdef MPM_WITH_AMREX
+  if constexpr (Tdim == 3) {
+    if (amr_backend_ != nullptr) {
+      const auto coordinates = particle->coordinates();
+      const auto key = amr_backend_->locate_finest(
+          {coordinates[0], coordinates[1], coordinates[2]});
+      if (!key.has_value()) return false;
+
+      const auto cell_id = this->amr_cell_id(key->level, key->index);
+      if (!cell_id.has_value()) return false;
+      const auto cell_itr = map_cells_.find(cell_id.value());
+      if (cell_itr == map_cells_.end()) return false;
+
+      Eigen::Matrix<double, Tdim, 1> xi;
+      if (!cell_itr->second->is_point_in_cell(coordinates, &xi)) return false;
+      particle->assign_cell_xi(cell_itr->second, xi);
+      return true;
+    }
+  }
+#endif
+
   // Check the current cell if it is not invalid
   if (particle->cell_id() != std::numeric_limits<mpm::Index>::max()) {
     // If a cell id is present, but not a cell locate the cell from map

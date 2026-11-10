@@ -2,6 +2,14 @@
 
 #ifdef USE_VTK
 
+#include <algorithm>
+#include <cmath>
+
+#include <vtkIdList.h>
+#include <vtkIntArray.h>
+#include <vtkUnstructuredGrid.h>
+#include <vtkXMLUnstructuredGridWriter.h>
+
 //! VTK Writer class Constructor with coordniates
 //! \param[in] coordinate Point coordinates
 //! \param[in] node_pairs Node ID pairs to form elements
@@ -285,6 +293,59 @@ void VtkWriter::write_mesh(
 #else
   writer->SetInputData(pdata);
 #endif
+  writer->Write();
+}
+
+//! Write a hexahedral cell grid with AMR level and size fields
+void VtkWriter::write_cells(
+    const std::string& filename,
+    const std::vector<Eigen::Vector3d>& coordinates,
+    const std::vector<std::array<mpm::Index, 8>>& connectivity,
+    const std::vector<int>& levels,
+    const std::vector<double>& cell_sizes) {
+  if (connectivity.empty() || connectivity.size() != levels.size() ||
+      connectivity.size() != cell_sizes.size())
+    return;
+
+  auto points = vtkSmartPointer<vtkPoints>::New();
+  for (mpm::Index id = 0; id < coordinates.size(); ++id)
+    points->InsertPoint(id, coordinates[id].data());
+
+  auto grid = vtkSmartPointer<vtkUnstructuredGrid>::New();
+  grid->SetPoints(points);
+  for (const auto& cell_nodes : connectivity) {
+    auto ids = vtkSmartPointer<vtkIdList>::New();
+    for (const auto node : cell_nodes) ids->InsertNextId(node);
+    grid->InsertNextCell(VTK_HEXAHEDRON, ids);
+  }
+
+  auto level_data = vtkSmartPointer<vtkIntArray>::New();
+  level_data->SetName("amr_level");
+  level_data->SetNumberOfComponents(1);
+  for (const int level : levels) level_data->InsertNextValue(level);
+  grid->GetCellData()->AddArray(level_data);
+  grid->GetCellData()->SetScalars(level_data);
+
+  auto size_data = vtkSmartPointer<vtkDoubleArray>::New();
+  size_data->SetName("cell_size");
+  size_data->SetNumberOfComponents(1);
+  const double maximum_size =
+      *std::max_element(cell_sizes.begin(), cell_sizes.end());
+  auto factor_data = vtkSmartPointer<vtkDoubleArray>::New();
+  factor_data->SetName("radius_factor");
+  factor_data->SetNumberOfComponents(1);
+  for (const double size : cell_sizes) {
+    size_data->InsertNextValue(size);
+    factor_data->InsertNextValue(maximum_size > 0.0 ? size / maximum_size : 1.0);
+  }
+  grid->GetCellData()->AddArray(size_data);
+  grid->GetCellData()->AddArray(factor_data);
+
+  auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
+  writer->SetFileName(filename.c_str());
+  writer->SetDataModeToBinary();
+  writer->SetInputData(grid);
+  writer->SetCompressor(vtkZLibDataCompressor::New());
   writer->Write();
 }
 

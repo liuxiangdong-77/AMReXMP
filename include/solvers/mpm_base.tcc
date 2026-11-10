@@ -177,6 +177,8 @@ mpm::MPMBase<Tdim>::MPMBase(const std::shared_ptr<IO>& io) : mpm::MPM(io) {
           post_process_["vtk"][i].template get<std::string>();
       if (attribute == "geometry")
         geometry_vtk_ = true;
+      else if (attribute == "grid")
+        grid_vtk_ = true;
       else if (variables.find(attribute) != variables.end())
         vtk_vars_[variables.at(attribute)].emplace_back(attribute);
       else {
@@ -250,6 +252,43 @@ void mpm::MPMBase<Tdim>::initialise_mesh() {
         __FILE__, __LINE__, exception.what());
     check_duplicates = true;
   }
+
+#ifdef MPM_WITH_AMREX
+  if (io_type == "Amr") {
+    if constexpr (Tdim == 3) {
+      const auto node_type =
+          mesh_props["node_type"].template get<std::string>();
+      const auto cell_type =
+          mesh_props["cell_type"].template get<std::string>();
+      auto element =
+          Factory<mpm::Element<Tdim>>::instance()->create(cell_type);
+
+      mpm::amr::AmrConfig config;
+      std::string error;
+      if (!mpm::amr::parse_amr_config(mesh_props.at("amr"), &config, &error))
+        throw std::runtime_error("Invalid AMR mesh configuration: " + error);
+
+      auto backend = std::make_shared<mpm::amr::AmrexAmrBackend>();
+      if (!backend->initialise(config, &error))
+        throw std::runtime_error("AMR backend initialisation failed: " + error);
+
+      mesh_->assign_amr_backend(backend);
+      mpm::amr::AmrMeshAdapter adapter;
+      if (!adapter.populate(*backend, mesh_.get(), node_type, element, &error))
+        throw std::runtime_error("AMR-to-MPM mesh conversion failed: " + error);
+
+      mesh_->find_cell_neighbours();
+      console_->info(
+          "Rank {} AMR mesh: {} levels, {} cells, {} nodes, {} hanging nodes",
+          mpi_rank,
+          backend->number_of_levels(), mesh_->ncells(), mesh_->nnodes(),
+          mesh_->hanging_node_constraints().size());
+      return;
+    } else {
+      throw std::runtime_error("AMR mesh mode currently supports 3D only");
+    }
+  }
+#endif
 
   // Create a mesh reader
   auto mesh_io = Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
@@ -410,11 +449,13 @@ void mpm::MPMBase<Tdim>::initialise_particles() {
 
   auto particles_locate_begin = std::chrono::steady_clock::now();
 
-  // Create a mesh reader
-  auto particle_io = Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
-
-  // Read and assign particles cells
-  this->particles_cells(mesh_props, particle_io);
+  std::shared_ptr<mpm::IOMesh<Tdim>> particle_io;
+  if (io_type != "Amr") {
+    // Create a mesh reader
+    particle_io = Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
+    // Read and assign particles cells
+    this->particles_cells(mesh_props, particle_io);
+  }
 
   // Locate particles in cell
   auto unlocatable_particles = mesh_->locate_particles_mesh();
@@ -423,10 +464,12 @@ void mpm::MPMBase<Tdim>::initialise_particles() {
     throw std::runtime_error(
         "mpm::base::initialise_particles() Particle outside the mesh domain");
 
-  // Write particles and cells to file
-  particle_io->write_particles_cells(
-      io_->output_file("particles-cells", ".txt", uuid_, 0, 0).string(),
-      mesh_->particles_cells());
+  if (particle_io != nullptr) {
+    // Write particles and cells to file
+    particle_io->write_particles_cells(
+        io_->output_file("particles-cells", ".txt", uuid_, 0, 0).string(),
+        mesh_->particles_cells());
+  }
 
   auto particles_locate_end = std::chrono::steady_clock::now();
   console_->info("Rank {} Locate particles: {} ms", mpi_rank,
@@ -635,6 +678,39 @@ void mpm::MPMBase<Tdim>::write_vtk(mpm::Index step, mpm::Index max_steps) {
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
 #endif
 
+  if (grid_vtk_ && step == 0 && mpi_rank == 0) {
+    if constexpr (Tdim == 3) {
+      std::vector<std::array<mpm::Index, 8>> connectivity;
+      std::vector<int> levels;
+      std::vector<double> cell_sizes;
+      const auto cells = mesh_->cells();
+      connectivity.reserve(cells.size());
+      levels.reserve(cells.size());
+      cell_sizes.reserve(cells.size());
+      for (auto citr = cells.cbegin(); citr != cells.cend(); ++citr) {
+        const auto& cell = *citr;
+        if (cell->nnodes() != 8) continue;
+        std::array<mpm::Index, 8> nodes{};
+        const auto cell_nodes = cell->nodes();
+        for (unsigned i = 0; i < nodes.size(); ++i)
+          nodes[i] = cell_nodes[i]->id();
+        connectivity.emplace_back(nodes);
+#ifdef MPM_WITH_AMREX
+        levels.emplace_back(mesh_->amr_cell_level(cell->id()));
+#else
+        levels.emplace_back(0);
+#endif
+        cell_sizes.emplace_back(
+            std::cbrt(cell->volume()));
+      }
+      auto gridfile =
+          io_->output_file("grid_data", ".vtu", uuid_, step, max_steps)
+              .string();
+      vtk_writer->write_cells(gridfile, mesh_->nodal_coordinates(),
+                              connectivity, levels, cell_sizes);
+    }
+  }
+
   //! VTK scalar variables
   for (const auto& attribute : vtk_vars_.at(mpm::VariableType::Scalar)) {
     // Write scalar
@@ -839,7 +915,9 @@ void mpm::MPMBase<Tdim>::initialise_loads() {
   // Create a file reader
   const std::string io_type =
       io_->json_object("mesh")["io_type"].template get<std::string>();
-  auto reader = Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
+  std::shared_ptr<mpm::IOMesh<Tdim>> reader;
+  if (io_type != "Amr")
+    reader = Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
 
   // Read and assign particles surface tractions
   if (loads.find("particle_surface_traction") != loads.end()) {
@@ -876,6 +954,9 @@ void mpm::MPMBase<Tdim>::initialise_loads() {
     for (const auto& nforce : loads["concentrated_nodal_forces"]) {
       // Forces are specified in a file
       if (nforce.find("file") != nforce.end()) {
+        if (reader == nullptr)
+          throw std::runtime_error(
+              "AMR mode does not support file-based nodal forces");
         std::string force_file = nforce.at("file").template get<std::string>();
         bool nodal_forces = mesh_->assign_nodal_concentrated_forces(
             reader->read_forces(io_->file_name(force_file)));
@@ -932,14 +1013,15 @@ bool mpm::MPMBase<Tdim>::initialise_math_functions(const Json& math_functions) {
       // Initiate another function_prop to be passed
       auto function_props_update = function_props;
 
-      // Create a file reader
-      const std::string io_type =
-          io_->json_object("mesh")["io_type"].template get<std::string>();
-      const auto& reader =
-          Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
-
       // Math function is specified in a file, replace function_props_update
       if (function_props.find("file") != function_props.end()) {
+        const std::string io_type =
+            io_->json_object("mesh")["io_type"].template get<std::string>();
+        if (io_type == "Amr")
+          throw std::runtime_error(
+              "AMR mode does not support file-based math functions");
+        const auto& reader =
+            Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
         // Read file and store in array of vectors
         std::string math_file = io_->file_name(
             function_props.at("file").template get<std::string>());
@@ -1667,11 +1749,6 @@ void mpm::MPMBase<Tdim>::particles_volumes(
 template <unsigned Tdim>
 void mpm::MPMBase<Tdim>::particle_velocity_constraints() {
   auto mesh_props = io_->json_object("mesh");
-  // Create a file reader
-  const std::string io_type =
-      io_->json_object("mesh")["io_type"].template get<std::string>();
-  auto reader = Factory<mpm::IOMesh<Tdim>>::instance()->create(io_type);
-
   try {
     if (mesh_props.find("boundary_conditions") != mesh_props.end() &&
         mesh_props["boundary_conditions"].find(

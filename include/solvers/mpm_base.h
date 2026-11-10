@@ -34,6 +34,12 @@
 #include "solver_base.h"
 #include "vector.h"
 
+#ifdef MPM_WITH_AMREX
+#include "mesh_adaptivity/amr_config.h"
+#include "mesh_adaptivity/amr_mesh_adapter.h"
+#include "mesh_adaptivity/amrex_amr_backend.h"
+#endif
+
 namespace mpm {
 
 //! Variable type
@@ -289,6 +295,8 @@ class MPMBase : public MPM {
   std::map<unsigned, std::shared_ptr<mpm::FunctionBase>> math_functions_;
   //! VTK geometry output bool
   bool geometry_vtk_{false};
+  //! VTK AMR cell-grid output bool
+  bool grid_vtk_{false};
   //! VTK particle variables
   tsl::robin_map<mpm::VariableType, std::vector<std::string>> vtk_vars_;
   //! VTK state variables

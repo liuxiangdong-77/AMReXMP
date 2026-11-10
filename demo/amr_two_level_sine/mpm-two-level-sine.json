@@ -1,0 +1,128 @@
+{
+  "title": "AMR_Two_Level_Cube_Sine_Excitation",
+  "mesh": {
+    "io_type": "Amr",
+    "check_duplicates": false,
+    "isoparametric": false,
+    "node_type": "N3D",
+    "cell_type": "ED3H8",
+    "particles_stresses": {
+      "type": "isotropic",
+      "values": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    "amr": {
+      "domain_min": [0.0, 0.0, 0.0],
+      "domain_max": [10.0, 10.0, 10.0],
+      "coarse_cells": [10, 10, 10],
+      "refinement_ratio": [2, 2, 2],
+      "max_grid_size": 4,
+      "levels": [
+        {
+          "level": 1,
+          "boxes": [
+            {
+              "min": [2.0, 2.0, 2.0],
+              "max": [8.0, 8.0, 8.0]
+            }
+          ]
+        },
+        {
+          "level": 2,
+          "boxes": [
+            {
+              "min": [4.0, 4.0, 4.0],
+              "max": [6.0, 6.0, 6.0]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "particles": [
+    {
+      "generator": {
+        "type": "gauss",
+        "nparticles_per_dir": 2,
+        "particle_type": "P3D",
+        "material_id": 0,
+        "cset_id": -1,
+        "pset_id": 0
+      }
+    },
+    {
+      "generator": {
+        "type": "file",
+        "material_id": 0,
+        "pset_id": 1,
+        "io_type": "Ascii3D",
+        "particle_type": "P3D",
+        "check_duplicates": false,
+        "location": "excitation-particle.txt"
+      }
+    }
+  ],
+  "materials": [
+    {
+      "id": 0,
+      "type": "LinearElastic3D",
+      "density": 2650.0,
+      "youngs_modulus": 20.0e9,
+      "poisson_ratio": 0.25
+    }
+  ],
+  "external_loading_conditions": {
+    "gravity": [0.0, 0.0, 0.0],
+    "particle_surface_traction": [
+      {
+        "pset_id": 1,
+        "math_function_id": 0,
+        "dir": 2,
+        "traction": 5.0e6
+      }
+    ]
+  },
+  "math_functions": [
+    {
+      "id": 0,
+      "type": "Sin",
+      "x0": 0.0,
+      "a": 3141.592653589793,
+      "xrange": [0.0, 0.002]
+    }
+  ],
+  "analysis": {
+    "type": "MPMExplicit3D",
+    "mpm_scheme": "usl",
+    "velocity_update": "flip",
+    "velocity_update_settings": {
+      "blending_ratio": 0.95
+    },
+    "dt": 1.0e-5,
+    "nsteps": 200,
+    "locate_particles": true,
+    "nload_balance_steps": 1000,
+    "uuid": "amr-two-level-sine-000",
+    "resume": {
+      "resume": false,
+      "uuid": "amr-two-level-sine-000",
+      "step": 0
+    },
+    "damping": {
+      "type": "Cundall",
+      "damping_factor": 0.0
+    },
+    "rayleigh_alpha": 0.0
+  },
+  "post_processing": {
+    "output_steps": 5,
+    "path": "results-amr-two-level-sine/",
+    "vtk": [
+      "grid",
+      "displacements",
+      "velocities",
+      "stresses",
+      "radius_factor",
+      "particle_spacing"
+    ]
+  }
+}

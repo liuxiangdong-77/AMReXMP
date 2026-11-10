@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.12)
 
 project(mpm LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 SET(CMAKE_COLOR_MAKEFILE ON)
 SET(CMAKE_VERBOSE_MAKEFILE OFF)
@@ -22,17 +24,25 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O2 -g -DNDEBUG")
 set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -Os -DNDEBUG")
 
-# GNU specific settings
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-  # 只在非调试模式添加 -fpermissive（调试时最好保持严格）
-  #if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive")
-  #endif()
-endif()
-
-# Intel specific settings
-if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
+# GCC 13.3 can crash in cfgcleanup while compiling Eigen/spdlog templates.
+option(MPM_GCC13_ICE_WORKAROUND
+  "Disable GCC 13.3 optimization passes known to trigger internal errors" ON)
+if(MPM_GCC13_ICE_WORKAROUND AND CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND
+   CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13.3 AND
+   CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.4)
+  message(STATUS "Enabling GCC 13.3 ICE workaround")
+  add_compile_options(
+    -fno-tree-ccp
+    -fno-tree-dce
+    -fno-tree-dominator-opts
+    -fno-tree-forwprop
+    -fno-tree-pre
+    -fno-tree-sink
+    -fno-tree-tail-merge
+    -fno-tree-vrp
+    -fno-reorder-blocks
+    -fno-reorder-blocks-and-partition
+  )
 endif()
 
 # Clang specific settings
@@ -229,6 +239,7 @@ SET(mpm_src
   ${mpm_SOURCE_DIR}/src/io/vtk_writer.cc
   ${mpm_SOURCE_DIR}/src/linear_solver.cc
   ${mpm_SOURCE_DIR}/src/material.cc
+  ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_runtime.cc
   ${mpm_SOURCE_DIR}/src/mpm.cc
   ${mpm_SOURCE_DIR}/src/nodal_properties.cc
   ${mpm_SOURCE_DIR}/src/node.cc
@@ -236,6 +247,13 @@ SET(mpm_src
   ${mpm_SOURCE_DIR}/src/quadrature.cc
 )
 add_executable(mpm ${mpm_SOURCE_DIR}/src/main.cc ${mpm_src} ${mpm_vtk})
+
+if(VTK_FOUND)
+  add_executable(particle_stress_history
+    ${mpm_SOURCE_DIR}/tools/particle_stress_history.cc
+  )
+  target_link_libraries(particle_stress_history PRIVATE ${VTK_LIBRARIES})
+endif()
 
 # Git revision
 set(PRE_CONFIGURE_FILE "${CMAKE_SOURCE_DIR}/include/git.cc.in")
@@ -248,30 +266,61 @@ target_link_libraries(mpm PRIVATE git)
 
 if(MPM_WITH_AMREX)
   target_compile_definitions(mpm PRIVATE MPM_WITH_AMREX=1)
-
-  add_library(mpm_amrex_runtime STATIC
-    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_runtime.cc
+  target_link_libraries(mpm PRIVATE AMReX::amrex)
+  target_sources(mpm PRIVATE
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amr_config.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_amr_backend.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amr_mesh_adapter.cc
   )
-  target_include_directories(mpm_amrex_runtime PUBLIC
-    ${mpm_SOURCE_DIR}/include
-  )
-  target_compile_features(mpm_amrex_runtime PRIVATE cxx_std_20)
-  target_compile_definitions(mpm_amrex_runtime PRIVATE MPM_WITH_AMREX=1)
-  target_link_libraries(mpm_amrex_runtime PRIVATE AMReX::amrex)
-
-  target_link_libraries(mpm PRIVATE mpm_amrex_runtime)
 
   add_executable(amrex_smoke_test
     ${mpm_SOURCE_DIR}/tests/mesh_adaptivity/amrex_smoke_test.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_runtime.cc
   )
   target_include_directories(amrex_smoke_test PRIVATE
     ${mpm_SOURCE_DIR}/include
   )
-  target_compile_features(amrex_smoke_test PRIVATE cxx_std_20)
-  target_link_libraries(amrex_smoke_test PRIVATE
-    mpm_amrex_runtime
-    AMReX::amrex
+  target_compile_definitions(amrex_smoke_test PRIVATE MPM_WITH_AMREX=1)
+  target_link_libraries(amrex_smoke_test PRIVATE AMReX::amrex)
+
+  add_executable(amrex_amr_layout_tool
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_amr_layout_tool.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amr_config.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_amr_backend.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_runtime.cc
   )
+  target_include_directories(amrex_amr_layout_tool PRIVATE
+    ${mpm_SOURCE_DIR}/include
+  )
+  target_compile_definitions(amrex_amr_layout_tool PRIVATE MPM_WITH_AMREX=1)
+  target_link_libraries(amrex_amr_layout_tool PRIVATE AMReX::amrex)
+
+  add_executable(amrex_amr_backend_test
+    ${mpm_SOURCE_DIR}/tests/mesh_adaptivity/amrex_amr_backend_test.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amr_config.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_amr_backend.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_runtime.cc
+  )
+  target_include_directories(amrex_amr_backend_test PRIVATE
+    ${mpm_SOURCE_DIR}/include
+  )
+  target_compile_definitions(amrex_amr_backend_test PRIVATE MPM_WITH_AMREX=1)
+  target_link_libraries(amrex_amr_backend_test PRIVATE AMReX::amrex)
+
+  add_executable(amrex_amr_mesh_adapter_test
+    ${mpm_SOURCE_DIR}/tests/mesh_adaptivity/amrex_amr_mesh_adapter_test.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amr_config.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_amr_backend.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amr_mesh_adapter.cc
+    ${mpm_SOURCE_DIR}/src/mesh_adaptivity/amrex_runtime.cc
+    ${mpm_src}
+    ${mpm_vtk}
+  )
+  target_include_directories(amrex_amr_mesh_adapter_test PRIVATE
+    ${mpm_SOURCE_DIR}/include
+  )
+  target_compile_definitions(amrex_amr_mesh_adapter_test PRIVATE MPM_WITH_AMREX=1)
+  target_link_libraries(amrex_amr_mesh_adapter_test PRIVATE AMReX::amrex)
 endif()
 
 # Unit test

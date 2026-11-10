@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <optional>
 #include <memory>
 #include <numeric>
 #include <vector>
@@ -46,6 +47,10 @@ using Json = nlohmann::json;
 #include "traction.h"
 #include "vector.h"
 #include "velocity_constraint.h"
+
+#ifdef MPM_WITH_AMREX
+#include "mesh_adaptivity/amrex_amr_backend.h"
+#endif
 
 #include "mtf_constraint.h"//lxd
 
@@ -204,6 +209,40 @@ class Mesh {
 
   //! Find cell neighbours
   void find_cell_neighbours();
+
+#ifdef MPM_WITH_AMREX
+  //! Assign the AMR hierarchy used for finest-cell lookup
+  void assign_amr_backend(
+      const std::shared_ptr<mpm::amr::AmrexAmrBackend>& backend);
+
+  //! Map an MPM cell id to its AMR level and index
+  void assign_amr_cell_key(mpm::Index cell_id,
+                           const mpm::amr::AmrCellKey& key);
+
+  //! Return the MPM cell id for an AMR level/index pair
+  std::optional<mpm::Index> amr_cell_id(
+      int level, const std::array<int, 3>& index) const;
+
+  //! Return the AMR level of an MPM cell
+  int amr_cell_level(mpm::Index cell_id) const;
+
+  //! Assign direct hanging-node constraints
+  void assign_hanging_node_constraints(
+      const std::vector<mpm::amr::HangingNodeConstraint>& constraints);
+
+  //! Return direct hanging-node constraints
+  const std::vector<mpm::amr::HangingNodeConstraint>&
+  hanging_node_constraints() const;
+
+  //! Move hanging-node mass and momentum to coarse support nodes
+  void condense_hanging_node_mass_momentum(unsigned phase);
+
+  //! Project hanging-node forces to coarse support nodes
+  void project_hanging_node_forces(unsigned phase);
+
+  //! Rebuild hanging-node velocity and acceleration from support nodes
+  void reconstruct_hanging_node_kinematics(unsigned phase);
+#endif
 
   //! Find global nparticles across MPI ranks / cell
   void find_nglobal_particles_cells();
@@ -902,6 +941,17 @@ class Mesh {
   unsigned nhalo_nodes_{0};
   //! Maximum number of halo nodes
   unsigned ncomms_{0};
+
+#ifdef MPM_WITH_AMREX
+  //! AMR hierarchy used to locate particles
+  std::shared_ptr<mpm::amr::AmrexAmrBackend> amr_backend_;
+  //! Map encoded AMR level/index to MPM cell id
+  std::map<std::array<int, 4>, mpm::Index> amr_cell_ids_;
+  //! AMR level indexed by MPM cell id
+  std::vector<int> amr_cell_levels_;
+  //! Direct coarse-fine hanging-node constraints
+  std::vector<mpm::amr::HangingNodeConstraint> hanging_node_constraints_;
+#endif
 };  // Mesh class
 }  // namespace mpm
 

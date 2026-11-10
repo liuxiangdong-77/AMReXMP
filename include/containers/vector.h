@@ -15,7 +15,7 @@ template <class T>
 class Vector {
  public:
   //! Default constructor
-  Vector<T>() = default;
+  Vector() = default;
 
   //! Add a pointer to an element
   //! \param[in] ptr A shared pointer

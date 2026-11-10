@@ -65,6 +65,12 @@ inline void mpm::MPMScheme<Tdim>::compute_nodal_kinematics(
   }
 #endif
 
+#ifdef MPM_WITH_AMREX
+  // Coarse-fine interface: hanging nodes do not carry independent mass or
+  // momentum. Their P2G contributions are projected onto coarse Hex8 nodes.
+  mesh_->condense_hanging_node_mass_momentum(phase);
+#endif
+
   // Compute nodal velocity
   mesh_->iterate_over_nodes_predicate(
       std::bind(&mpm::NodeBase<Tdim>::compute_velocity, std::placeholders::_1),
@@ -240,6 +246,12 @@ inline void mpm::MPMScheme<Tdim>::compute_particle_kinematics(
   // Update nodal acceleration constraints
   mesh_->update_nodal_acceleration_constraints(step * dt_);
 
+#ifdef MPM_WITH_AMREX
+  // All nodal forces have now been assembled. Project slave-node forces to
+  // the coarse supports before nodal acceleration is evaluated.
+  mesh_->project_hanging_node_forces(phase);
+#endif
+
   // Check if damping has been specified and accordingly Iterate over
   // active nodes to compute acceleratation and velocity
   if (damping_type == "Cundall")
@@ -252,6 +264,12 @@ inline void mpm::MPMScheme<Tdim>::compute_particle_kinematics(
         std::bind(&mpm::NodeBase<Tdim>::compute_acceleration_velocity,
                   std::placeholders::_1, phase, dt_),
         std::bind(&mpm::NodeBase<Tdim>::status, std::placeholders::_1));//MTF重构加速度、速度增量在这里,Lysmer计算应力->加速度也在这
+
+#ifdef MPM_WITH_AMREX
+  // Rebuild slave kinematics from the advanced coarse support nodes before
+  // fine-cell particles interpolate their velocity and acceleration.
+  mesh_->reconstruct_hanging_node_kinematics(phase);
+#endif
 
   // Iterate over each particle to compute updated position
   mesh_->iterate_over_particles(

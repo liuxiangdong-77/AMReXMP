@@ -190,6 +190,14 @@ class NodeBase {
   virtual void update_acceleration(bool update, unsigned phase,
                                    const VectorDim& acceleration) = 0;
 
+  //! Assign nodal velocity and acceleration together
+  //! \param[in] phase Index corresponding to the phase
+  //! \param[in] velocity Interpolated nodal velocity
+  //! \param[in] acceleration Interpolated nodal acceleration
+  virtual void assign_velocity_acceleration(
+      unsigned phase, const VectorDim& velocity,
+      const VectorDim& acceleration) noexcept = 0;
+
   //! Return acceleration
   //! \param[in] phase Index corresponding to the phase
   virtual VectorDim acceleration(unsigned phase) const = 0;

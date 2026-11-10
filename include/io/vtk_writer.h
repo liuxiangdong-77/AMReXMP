@@ -84,6 +84,14 @@ class VtkWriter {
                   const std::vector<Eigen::Vector3d>& coordinates,
                   const std::vector<std::array<mpm::Index, 2>>& node_pairs);
 
+  //! Write a hexahedral cell grid with AMR level and size fields
+  void write_cells(
+      const std::string& filename,
+      const std::vector<Eigen::Vector3d>& coordinates,
+      const std::vector<std::array<mpm::Index, 8>>& connectivity,
+      const std::vector<int>& levels,
+      const std::vector<double>& cell_sizes);
+
   //! Write Parallel VTK file
   //! \param[in] filename Mesh PVTP file name
   //! \param[in] attribute VTK data attribute to be written

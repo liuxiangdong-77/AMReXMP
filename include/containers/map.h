@@ -21,7 +21,7 @@ template <class T>
 class Map {
  public:
   //! Default constructor
-  Map<T>() = default;
+  Map() = default;
 
   //! Insert a pointer
   //! \param[in] ptr A shared pointer

@@ -271,6 +271,18 @@ void mpm::Node<Tdim, Tdof, Tnphases>::update_acceleration(
   node_mutex_.unlock();
 }
 
+template <unsigned Tdim, unsigned Tdof, unsigned Tnphases>
+void mpm::Node<Tdim, Tdof, Tnphases>::assign_velocity_acceleration(
+    unsigned phase, const Eigen::Matrix<double, Tdim, 1>& velocity,
+    const Eigen::Matrix<double, Tdim, 1>& acceleration) noexcept {
+  assert(phase < Tnphases);
+
+  node_mutex_.lock();
+  velocity_.col(phase) = velocity;
+  acceleration_.col(phase) = acceleration;
+  node_mutex_.unlock();
+}
+
 //! Compute acceleration and velocity
 template <unsigned Tdim, unsigned Tdof, unsigned Tnphases>
 bool mpm::Node<Tdim, Tdof, Tnphases>::compute_acceleration_velocity(
